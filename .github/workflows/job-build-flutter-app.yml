@@ -233,9 +233,3 @@ jobs:
           echo "🕐 Timestamp: $(date)"
           echo "======================"
 
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: apk-${{ inputs.env_name }}-${{ inputs.build_type }}
-          path: ${{ inputs.apk_path }}
-          retention-days: 1
