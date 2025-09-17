@@ -59,7 +59,26 @@ jobs:
             PULL_REQUEST_BASE_REF=""
           fi
 
-          if [[ ${{ github.ref }} == refs/heads/dev ]]; then
+          # Para Pull Requests, usar la rama base
+          if [[ ${{ github.event_name }} == pull_request ]]; then
+            if [[ "$PULL_REQUEST_BASE_REF" == "dev" ]]; then
+              echo "work_env=dev" >> $GITHUB_OUTPUT
+              echo "env_file=.env.dev" >> $GITHUB_OUTPUT
+              echo "env_name=dev" >> $GITHUB_OUTPUT
+            elif [[ "$PULL_REQUEST_BASE_REF" == "qa" ]]; then
+              echo "work_env=qa" >> $GITHUB_OUTPUT
+              echo "env_file=.env.qa" >> $GITHUB_OUTPUT
+              echo "env_name=qa" >> $GITHUB_OUTPUT
+            elif [[ "$PULL_REQUEST_BASE_REF" == "master" ]]; then
+              echo "work_env=prod" >> $GITHUB_OUTPUT
+              echo "env_file=.env" >> $GITHUB_OUTPUT
+              echo "env_name=prod" >> $GITHUB_OUTPUT
+            else
+              echo "work_env=dev" >> $GITHUB_OUTPUT
+              echo "env_file=.env.dev" >> $GITHUB_OUTPUT
+              echo "env_name=dev" >> $GITHUB_OUTPUT
+            fi
+          elif [[ ${{ github.ref }} == refs/heads/dev ]]; then
             echo "work_env=dev" >> $GITHUB_OUTPUT
             echo "env_file=.env.dev" >> $GITHUB_OUTPUT
             echo "env_name=dev" >> $GITHUB_OUTPUT
