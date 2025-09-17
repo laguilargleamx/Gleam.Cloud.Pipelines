@@ -47,6 +47,15 @@ jobs:
         run: |
           echo "☁️ Subiendo APK a OneDrive..."
           
+          # Buscar el archivo APK en el directorio descargado
+          APK_FILE=$(find ./apk -name "*.apk" | head -1)
+          if [ -z "$APK_FILE" ]; then
+            echo "❌ Error: No se encontró el archivo APK"
+            exit 1
+          fi
+          
+          echo "📱 Archivo APK encontrado: $APK_FILE"
+          
           # Obtener access token para Microsoft Graph usando OAuth2
           ACCESS_TOKEN=$(curl -s -X POST \
             -H "Content-Type: application/x-www-form-urlencoded" \
@@ -110,15 +119,6 @@ jobs:
             
             # Subir el archivo usando la sesión de upload
             echo "📤 Subiendo archivo..."
-            
-            # Buscar el archivo APK en el directorio descargado
-            APK_FILE=$(find ./apk -name "*.apk" | head -1)
-            if [ -z "$APK_FILE" ]; then
-              echo "❌ Error: No se encontró el archivo APK"
-              exit 1
-            fi
-            
-            echo "📱 Archivo APK encontrado: $APK_FILE"
             
             # Obtener el tamaño del archivo para validación
             FILE_SIZE=$(stat -c%s "$APK_FILE" 2>/dev/null || stat -f%z "$APK_FILE" 2>/dev/null)
