@@ -1,0 +1,138 @@
+name: Main Flutter Workflow
+
+on: 
+  workflow_call:
+    inputs:
+      project:
+        required: true
+        type: string
+      directory:
+        required: true
+        type: string
+      type:
+        required: true
+        type: string
+      key:
+        required: true
+        type: string
+      real_project:
+        required: false
+        type: string
+        default: ${{ inputs.project }}
+    secrets:
+      custom_github_user:
+        required: true
+      custom_github_token:
+        required: true
+      android_keystore_base64:
+        required: true
+      android_keystore_password:
+        required: true
+      android_key_password:
+        required: true
+      android_key_alias:
+        required: true
+      google_services_json_base65:
+        required: true
+      azure_client_id:
+        required: true
+      azure_client_secret:
+        required: true
+      azure_tenant_id:
+        required: true
+      onedrive_folder_id:
+        required: true
+      dev_api_base_url:
+        required: false
+      dev_system:
+        required: false
+      dev_permissions:
+        required: false
+      qa_api_base_url:
+        required: false
+      qa_system:
+        required: false
+      qa_permissions:
+        required: false
+      prod_api_base_url:
+        required: false
+      prod_system:
+        required: false
+      prod_permissions:
+        required: false
+
+jobs: 
+  setup-configuration:
+    name: Setup Configuration
+    uses: ./.github/workflows/job-setup-configuration.yml
+    with:
+      project_type: ${{ inputs.type }}
+      project_key: ${{ inputs.key }}
+
+  print-values:
+    name: Print Values
+    runs-on: ubuntu-22.04
+    needs: [setup-configuration]
+    steps:
+      - run: |
+          echo "project: ${{ inputs.project }}"
+          echo "directory: ${{ inputs.directory }}"
+          echo "type: ${{ inputs.type }}"
+          echo "key: ${{ inputs.key }}"
+          echo "real_project: ${{ inputs.real_project }}"
+          echo "work_env: ${{ needs.setup-configuration.outputs.work_env }}"
+          echo "build_id: ${{ needs.setup-configuration.outputs.build_id }}"
+          echo "apk_name: ${{ needs.setup-configuration.outputs.apk_name }}"
+          echo "apk_path: ${{ needs.setup-configuration.outputs.apk_path }}"
+          echo "build_type: ${{ needs.setup-configuration.outputs.build_type }}"
+          echo "version: ${{ needs.setup-configuration.outputs.version }}"
+          echo "env_file: ${{ needs.setup-configuration.outputs.env_file }}"
+          echo "env_name: ${{ needs.setup-configuration.outputs.env_name }}"
+          echo "tag_author: ${{ needs.setup-configuration.outputs.tag_author }}"
+          echo "tag_detail: ${{ needs.setup-configuration.outputs.tag_detail }}"
+
+  build-flutter-app:
+    if: github.event_name == 'push'
+    uses: ./.github/workflows/job-build-flutter-app.yml
+    needs: [setup-configuration]
+    with:
+      project: ${{ inputs.project }}
+      key: ${{ inputs.key }}
+      type: ${{ inputs.type }}
+      directory: ${{ inputs.directory }}
+      work_env: ${{ needs.setup-configuration.outputs.work_env }}
+      env_file: ${{ needs.setup-configuration.outputs.env_file }}
+      env_name: ${{ needs.setup-configuration.outputs.env_name }}
+      build_type: ${{ needs.setup-configuration.outputs.build_type }}
+      apk_name: ${{ needs.setup-configuration.outputs.apk_name }}
+      apk_path: ${{ needs.setup-configuration.outputs.apk_path }}
+    secrets:
+      android_keystore_base64: ${{ secrets.android_keystore_base64 }}
+      android_keystore_password: ${{ secrets.android_keystore_password }}
+      android_key_password: ${{ secrets.android_key_password }}
+      android_key_alias: ${{ secrets.android_key_alias }}
+      google_services_json_base65: ${{ secrets.google_services_json_base65 }}
+      dev_api_base_url: ${{ secrets.dev_api_base_url }}
+      dev_system: ${{ secrets.dev_system }}
+      dev_permissions: ${{ secrets.dev_permissions }}
+      qa_api_base_url: ${{ secrets.qa_api_base_url }}
+      qa_system: ${{ secrets.qa_system }}
+      qa_permissions: ${{ secrets.qa_permissions }}
+      prod_api_base_url: ${{ secrets.prod_api_base_url }}
+      prod_system: ${{ secrets.prod_system }}
+      prod_permissions: ${{ secrets.prod_permissions }}
+
+  upload-to-onedrive:
+    if: github.event_name == 'push'
+    uses: ./.github/workflows/job-upload-onedrive.yml
+    needs: [build-flutter-app, setup-configuration]
+    with:
+      project: ${{ inputs.project }}
+      apk_name: ${{ needs.setup-configuration.outputs.apk_name }}
+      apk_path: ${{ needs.setup-configuration.outputs.apk_path }}
+      env_name: ${{ needs.setup-configuration.outputs.env_name }}
+    secrets:
+      azure_client_id: ${{ secrets.azure_client_id }}
+      azure_client_secret: ${{ secrets.azure_client_secret }}
+      azure_tenant_id: ${{ secrets.azure_tenant_id }}
+      onedrive_folder_id: ${{ secrets.onedrive_folder_id }}

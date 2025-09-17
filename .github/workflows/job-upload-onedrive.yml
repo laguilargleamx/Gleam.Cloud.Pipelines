@@ -1,0 +1,149 @@
+name: Job Upload to OneDrive
+
+on: 
+  workflow_call:
+    inputs:
+      project:
+        required: true
+        type: string
+      apk_name:
+        required: true
+        type: string
+      apk_path:
+        required: true
+        type: string
+      env_name:
+        required: true
+        type: string
+    secrets:
+      azure_client_id:
+        required: true
+      azure_client_secret:
+        required: true
+      azure_tenant_id:
+        required: true
+      onedrive_folder_id:
+        required: true
+
+jobs: 
+  upload:
+    name: "Upload APK to OneDrive"
+    runs-on: ubuntu-22.04
+    outputs:
+      upload_success: ${{ steps.upload-onedrive.outputs.upload_success }}
+      file_url: ${{ steps.upload-onedrive.outputs.file_url }}
+      
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Upload APK to OneDrive
+        id: upload-onedrive
+        run: |
+          echo "☁️ Subiendo APK a OneDrive..."
+          
+          # Obtener access token para Microsoft Graph usando OAuth2
+          ACCESS_TOKEN=$(curl -s -X POST \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            -d "client_id=${{ secrets.azure_client_id }}" \
+            -d "client_secret=${{ secrets.azure_client_secret }}" \
+            -d "scope=https://graph.microsoft.com/.default" \
+            -d "grant_type=client_credentials" \
+            "https://login.microsoftonline.com/${{ secrets.azure_tenant_id }}/oauth2/v2.0/token" \
+            | jq -r '.access_token')
+          
+          if [ "$ACCESS_TOKEN" = "null" ] || [ -z "$ACCESS_TOKEN" ]; then
+            echo "❌ Error: No se pudo obtener access token"
+            exit 1
+          fi
+          
+          echo "✅ Access token obtenido exitosamente"
+          
+          # Usar el UPN directamente para OneDrive personal
+          echo "🔍 Usando UPN para OneDrive..."
+          USER_UPN="laguilar@gleam.mx"
+          echo "✅ UPN configurado: $USER_UPN"
+          
+          # Crear directorio en OneDrive si no existe
+          FOLDER_PATH="${{ secrets.onedrive_folder_id }}/${{ inputs.env_name }}"
+          
+          echo "📁 Creando directorio: $FOLDER_PATH"
+          
+          # Verificar si el directorio existe usando el UPN
+          FOLDER_CHECK=$(curl -s -H "Authorization: Bearer $ACCESS_TOKEN" \
+            "https://graph.microsoft.com/v1.0/users/$USER_UPN/drive/root:$FOLDER_PATH" \
+            -w "%{http_code}" -o /dev/null)
+          
+          if [ "$FOLDER_CHECK" != "200" ]; then
+            echo "📁 Creando directorio $FOLDER_PATH..."
+            curl -X POST \
+              -H "Authorization: Bearer $ACCESS_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"name\":\"${{ inputs.env_name }}\",\"folder\":{},\"@microsoft.graph.conflictBehavior\":\"rename\"}" \
+              "https://graph.microsoft.com/v1.0/users/$USER_UPN/drive/root:${{ secrets.onedrive_folder_id }}:/children"
+          else
+            echo "✅ Directorio ya existe: $FOLDER_PATH"
+          fi
+          
+          # Subir el APK
+          echo "📤 Subiendo APK: ${{ inputs.apk_name }}"
+          
+          echo "🔍 Creando sesión de upload..."
+          UPLOAD_RESPONSE=$(curl -s -X POST \
+            -H "Authorization: Bearer $ACCESS_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"item\":{\"@microsoft.graph.conflictBehavior\":\"rename\",\"name\":\"${{ inputs.apk_name }}\"}}" \
+            "https://graph.microsoft.com/v1.0/users/$USER_UPN/drive/root:$FOLDER_PATH/${{ inputs.apk_name }}:/createUploadSession")
+          
+          echo "📋 Respuesta de upload session:"
+          echo "$UPLOAD_RESPONSE"
+          
+          UPLOAD_URL=$(echo "$UPLOAD_RESPONSE" | jq -r '.uploadUrl')
+          
+          if [ "$UPLOAD_URL" != "null" ] && [ -n "$UPLOAD_URL" ]; then
+            echo "✅ Sesión de upload creada: $UPLOAD_URL"
+            
+            # Subir el archivo usando la sesión de upload
+            echo "📤 Subiendo archivo..."
+            
+            # Obtener el tamaño del archivo para validación
+            FILE_SIZE=$(stat -c%s "${{ inputs.apk_path }}" 2>/dev/null || stat -f%z "${{ inputs.apk_path }}" 2>/dev/null)
+            echo "📏 Tamaño del archivo: $FILE_SIZE bytes"
+            
+            # Subir el archivo con validación de respuesta
+            UPLOAD_RESPONSE=$(curl -s -w "HTTPSTATUS:%{http_code};SIZE:%{size_upload}" -X PUT \
+              -H "Content-Type: application/octet-stream" \
+              -H "Content-Range: bytes 0-$((FILE_SIZE-1))/$FILE_SIZE" \
+              --data-binary @"${{ inputs.apk_path }}" \
+              "$UPLOAD_URL")
+            
+            # Extraer el código de estado HTTP y el tamaño subido
+            HTTP_STATUS=$(echo "$UPLOAD_RESPONSE" | grep -o "HTTPSTATUS:[0-9]*" | cut -d: -f2)
+            UPLOADED_SIZE=$(echo "$UPLOAD_RESPONSE" | grep -o "SIZE:[0-9]*" | cut -d: -f2)
+            
+            echo "📊 Código HTTP: $HTTP_STATUS"
+            echo "📊 Tamaño subido: $UPLOADED_SIZE bytes"
+            
+            # Validar que la subida fue exitosa
+            if [ "$HTTP_STATUS" = "200" ] || [ "$HTTP_STATUS" = "201" ]; then
+              if [ "$UPLOADED_SIZE" = "$FILE_SIZE" ]; then
+                echo "✅ APK subido exitosamente a OneDrive"
+                echo "🔗 Ubicación: $FOLDER_PATH/${{ inputs.apk_name }}"
+                echo "upload_success=true" >> $GITHUB_OUTPUT
+                echo "file_url=$FOLDER_PATH/${{ inputs.apk_name }}" >> $GITHUB_OUTPUT
+              else
+                echo "❌ Error: Archivo subido parcialmente ($UPLOADED_SIZE/$FILE_SIZE bytes)"
+                echo "upload_success=false" >> $GITHUB_OUTPUT
+                exit 1
+              fi
+            else
+              echo "❌ Error: Falló la subida del archivo (HTTP $HTTP_STATUS)"
+              echo "📋 Respuesta: $UPLOAD_RESPONSE"
+              echo "upload_success=false" >> $GITHUB_OUTPUT
+              exit 1
+            fi
+          else
+            echo "❌ Error: No se pudo crear la sesión de upload"
+            echo "🔍 Respuesta completa: $UPLOAD_RESPONSE"
+            echo "upload_success=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi

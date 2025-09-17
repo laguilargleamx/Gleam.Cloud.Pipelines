@@ -1,0 +1,165 @@
+name: Job Setup Configuration
+
+on: 
+  workflow_call:
+    inputs:
+      project_type:
+        required: true
+        type: string
+      project_key:
+        required: true
+        type: string
+    outputs:
+      build_id:
+        value: ${{ jobs.setup.outputs.build_id }}
+      apk_name:
+        value: ${{ jobs.setup.outputs.apk_name }}
+      apk_path:
+        value: ${{ jobs.setup.outputs.apk_path }}
+      build_type:
+        value: ${{ jobs.setup.outputs.build_type }}
+      version:
+        value: ${{ jobs.setup.outputs.version }}
+      work_env:
+        value: ${{ jobs.setup.outputs.work_env }}
+      env_file:
+        value: ${{ jobs.setup.outputs.env_file }}
+      env_name:
+        value: ${{ jobs.setup.outputs.env_name }}
+      tag_author:
+        value: ${{ jobs.setup.outputs.tag_author }}
+      tag_detail:
+        value: ${{ jobs.setup.outputs.tag_detail }}
+
+jobs: 
+  setup:
+    name: "Setup Flutter Configuration"
+    runs-on: ubuntu-22.04
+    outputs:
+      build_id: ${{ steps.set-tag-version.outputs.build_id }}
+      apk_name: ${{ steps.set-tag-version.outputs.apk_name }}
+      apk_path: ${{ steps.set-tag-version.outputs.apk_path }}
+      build_type: ${{ steps.set-tag-version.outputs.build_type }}
+      version: ${{ steps.set-tag-version.outputs.version }}
+      work_env: ${{ steps.init.outputs.work_env }}
+      env_file: ${{ steps.init.outputs.env_file }}
+      env_name: ${{ steps.init.outputs.env_name }}
+      tag_author: ${{ steps.set-tag-version.outputs.tag_author }}
+      tag_detail: ${{ steps.set-tag-version.outputs.tag_detail }}
+      
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Flutter Configuration
+        id: init
+        run: |
+          if [[ ${{ github.event_name }} == pull_request ]]; then
+            PULL_REQUEST_BASE_REF="${{ github.event.pull_request.base.ref }}"
+          else
+            PULL_REQUEST_BASE_REF=""
+          fi
+
+          if [[ ${{ github.ref }} == refs/heads/dev ]]; then
+            echo "work_env=dev" >> $GITHUB_OUTPUT
+            echo "env_file=.env.dev" >> $GITHUB_OUTPUT
+            echo "env_name=dev" >> $GITHUB_OUTPUT
+          elif [[ ${{ github.ref }} == refs/heads/qa ]]; then
+            echo "work_env=qa" >> $GITHUB_OUTPUT
+            echo "env_file=.env.qa" >> $GITHUB_OUTPUT
+            echo "env_name=qa" >> $GITHUB_OUTPUT
+          elif [[ ${{ github.ref }} == refs/heads/master ]]; then
+            echo "work_env=prod" >> $GITHUB_OUTPUT
+            echo "env_file=.env" >> $GITHUB_OUTPUT
+            echo "env_name=prod" >> $GITHUB_OUTPUT
+          elif [[ ${{ github.ref }} == refs/tags/qa* ]]; then
+            echo "work_env=qa" >> $GITHUB_OUTPUT
+            echo "env_file=.env.qa" >> $GITHUB_OUTPUT
+            echo "env_name=qa" >> $GITHUB_OUTPUT
+          elif [[ ${{ github.ref }} == refs/tags/rc* ]]; then
+            echo "work_env=stg" >> $GITHUB_OUTPUT
+            echo "env_file=.env.stg" >> $GITHUB_OUTPUT
+            echo "env_name=stg" >> $GITHUB_OUTPUT
+          elif [[ ${{ github.ref }} == refs/tags/v* ]]; then
+            echo "work_env=prd" >> $GITHUB_OUTPUT
+            echo "env_file=.env" >> $GITHUB_OUTPUT
+            echo "env_name=prod" >> $GITHUB_OUTPUT
+          else
+            echo "The branch is invalid."
+            exit 1
+          fi
+
+      - name: Set TAG and Version
+        id: set-tag-version
+        shell: bash
+        run: |
+          echo "TAG: ${{ github.ref_name }}"
+
+          echo "build_id=${{ github.run_number }}" >> $GITHUB_OUTPUT
+
+          # Determinar el tipo de build según la rama
+          if [[ "${{ github.ref }}" == "refs/heads/dev" ]] || [[ "${{ github.ref }}" == "refs/heads/qa" ]]; then
+            BUILD_TYPE="profile"
+            echo "🔧 Generando APK en modo PROFILE para rama ${{ github.ref_name }}"
+          elif [[ "${{ github.ref }}" == "refs/heads/master" ]]; then
+            BUILD_TYPE="release"
+            echo "🚀 Generando APK en modo RELEASE para rama master"
+          else
+            BUILD_TYPE="profile"
+            echo "🔧 Generando APK en modo PROFILE (por defecto)"
+          fi
+
+          echo "build_type=$BUILD_TYPE" >> $GITHUB_OUTPUT
+
+          REGEX_TAG='(rc|qa|v)([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$)'
+          if [[ ${{ github.ref_name }} =~ $REGEX_TAG ]]; then
+
+            _TAG=`echo "${BASH_REMATCH[1]}"`
+            _VERSION=`echo "${BASH_REMATCH[2]}"`
+
+            if [[ $_TAG == "rc" ]];
+            then
+              _DOCKER_TAG=`echo "rc$_VERSION"`
+              _ENV=staging
+            elif [[ $_TAG == "v" ]];
+            then
+              _DOCKER_TAG=`echo "v$_VERSION"`
+              _ENV=prd
+            elif [[ $_TAG == "qa" ]];
+            then
+              _DOCKER_TAG=`echo "qa$_VERSION"`
+              _ENV=qa
+            else
+              echo "The ENV is invalid."
+              exit 1
+            fi
+
+            echo "version=$_VERSION" >> $GITHUB_OUTPUT
+
+            _TAG_DETAIL=""
+            _AUTHOR=""
+
+            echo "TAG_DETAIL: $_TAG_DETAIL"
+            echo "AUTHOR: $_AUTHOR"
+
+            echo "tag_detail=$_TAG_DETAIL" >> $GITHUB_OUTPUT
+            echo "tag_author=$_AUTHOR" >> $GITHUB_OUTPUT
+            
+          elif [[ ${{ steps.init.outputs.work_env }} == "dev" ]] || [[ ${{ steps.init.outputs.work_env }} == "qa" ]] || [[ ${{ steps.init.outputs.work_env }} == "prod" ]];
+          then
+            echo "The work env is ${{ steps.init.outputs.work_env }}"
+
+            _VERSION=1.0.${{ github.run_number }}
+
+            echo "version=$_VERSION" >> $GITHUB_OUTPUT
+          else
+            echo "The git TAG is invalid."
+            exit 1
+          fi
+
+          # Generar timestamp Unix para el nombre del APK
+          TIMESTAMP=$(date +%s)
+          APK_NAME="${{ steps.init.outputs.env_name }}_${BUILD_TYPE}_$TIMESTAMP.apk"
+          APK_PATH="build/app/outputs/flutter-apk/$APK_NAME"
+          
+          echo "apk_name=$APK_NAME" >> $GITHUB_OUTPUT
+          echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT

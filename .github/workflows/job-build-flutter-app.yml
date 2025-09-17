@@ -1,0 +1,228 @@
+name: Job Build Flutter App
+
+on: 
+  workflow_call:
+    inputs:
+      project:
+        required: true
+        type: string
+      key:
+        required: true
+        type: string
+      type:
+        required: true
+        type: string
+      directory:
+        required: true
+        type: string
+      work_env:
+        required: true
+        type: string
+      env_file:
+        required: true
+        type: string
+      env_name:
+        required: true
+        type: string
+      build_type:
+        required: true
+        type: string
+      apk_name:
+        required: true
+        type: string
+      apk_path:
+        required: true
+        type: string
+    secrets:
+      android_keystore_base64:
+        required: true
+      android_keystore_password:
+        required: true
+      android_key_password:
+        required: true
+      android_key_alias:
+        required: true
+      google_services_json_base65:
+        required: true
+      dev_api_base_url:
+        required: false
+      dev_system:
+        required: false
+      dev_permissions:
+        required: false
+      qa_api_base_url:
+        required: false
+      qa_system:
+        required: false
+      qa_permissions:
+        required: false
+      prod_api_base_url:
+        required: false
+      prod_system:
+        required: false
+      prod_permissions:
+        required: false
+
+jobs: 
+  build:
+    name: "Build Flutter Application"
+    runs-on: ubuntu-22.04
+    outputs:
+      apk_name: ${{ steps.build-apk.outputs.apk_name }}
+      apk_path: ${{ steps.build-apk.outputs.apk_path }}
+      build_type: ${{ steps.build-apk.outputs.build_type }}
+      
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.32.1'
+
+      - name: Create environment files
+        id: create-env
+        run: |
+          echo "🌍 Ambiente: ${{ inputs.env_name }}"
+          echo "📄 Archivo principal: ${{ inputs.env_file }}"
+          
+          # Crear .env.dev
+          cat > .env.dev << 'EOF'
+          API_BASE_URL=${{ secrets.dev_api_base_url }}
+          SYSTEM=${{ secrets.dev_system }}
+          PERMISSIONS=${{ secrets.dev_permissions }}
+          EOF
+          
+          # Crear .env.qa
+          cat > .env.qa << 'EOF'
+          API_BASE_URL=${{ secrets.qa_api_base_url }}
+          SYSTEM=${{ secrets.qa_system }}
+          PERMISSIONS=${{ secrets.qa_permissions }}
+          EOF
+          
+          # Crear .env (producción)
+          cat > .env << 'EOF'
+          API_BASE_URL=${{ secrets.prod_api_base_url }}
+          SYSTEM=${{ secrets.prod_system }}
+          PERMISSIONS=${{ secrets.prod_permissions }}
+          EOF
+          
+          echo "📁 Archivos de ambiente creados:"
+          echo "   - .env.dev (DEV)"
+          echo "   - .env.qa (QA)" 
+          echo "   - .env (PRODUCCIÓN)"
+
+      - name: Verify environment files
+        run: |
+          echo "📁 Verificando archivos de ambiente creados:"
+          echo ""
+          echo "🔍 .env.dev (DEV):"
+          cat .env.dev
+          echo ""
+          echo "🔍 .env.qa (QA):"
+          cat .env.qa
+          echo ""
+          echo "🔍 .env (PRODUCCIÓN):"
+          cat .env
+          echo ""
+          echo "📋 Todos los archivos: $(ls -la .env*)"
+          echo ""
+          echo "🎯 Archivo principal para este ambiente: ${{ inputs.env_file }}"
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Run code generation
+        run: flutter pub run build_runner build --delete-conflicting-outputs
+
+      - name: Run tests
+        run: flutter test
+
+      - name: Setup Android Keystore
+        id: setup-keystore
+        run: |
+          echo "🔐 Configurando keystore para firma de Android..."
+          
+          # Crear directorio para el keystore
+          mkdir -p android/app
+          
+          # Decodificar el keystore desde GitHub Secrets
+          echo "${{ secrets.android_keystore_base64 }}" | base64 -d > android/app/keystore.jks
+          
+          # Verificar que el keystore se creó correctamente
+          if [ -f "android/app/keystore.jks" ]; then
+            echo "✅ Keystore decodificado exitosamente"
+            ls -la android/app/keystore.jks
+          else
+            echo "❌ Error: No se pudo crear el keystore"
+            exit 1
+          fi
+          
+          # Crear archivo key.properties para el build
+          cat > android/key.properties << EOF
+          storePassword=${{ secrets.android_keystore_password }}
+          keyPassword=${{ secrets.android_key_password }}
+          keyAlias=${{ secrets.android_key_alias }}
+          storeFile=keystore.jks
+          EOF
+          
+          echo "📄 Archivo key.properties creado"
+          echo "🔑 Alias de la clave: ${{ secrets.android_key_alias }}"
+          
+          # Mostrar el SHA-1 del keystore (opcional, no crítico)
+          echo "🔍 Intentando mostrar SHA-1 del keystore:"
+          if keytool -list -v -keystore android/app/keystore.jks -alias ${{ secrets.android_key_alias }} -storepass ${{ secrets.android_keystore_password }} 2>/dev/null | grep "SHA1:"; then
+            echo "✅ SHA-1 obtenido correctamente"
+          else
+            echo "⚠️ No se pudo obtener SHA-1 (no crítico para el build)"
+          fi
+
+      - name: Setup Google Services
+        run: |
+          echo "🔧 Configurando Google Services..."
+          
+          # Crear google-services.json desde GitHub Secrets
+          echo "${{ secrets.google_services_json_base65 }}" | base64 -d > android/app/google-services.json
+          
+          # Verificar que el archivo se creó correctamente
+          if [ -f "android/app/google-services.json" ]; then
+            echo "✅ Google Services configurado exitosamente"
+            echo "📄 Archivo google-services.json creado"
+          else
+            echo "❌ Error: No se pudo crear google-services.json"
+            exit 1
+          fi
+
+      - name: Build APK
+        id: build-apk
+        run: |
+          # Generar timestamp Unix
+          TIMESTAMP=$(date +%s)
+          echo "🕐 Timestamp: $TIMESTAMP"
+          
+          echo "🔧 Generando APK en modo ${{ inputs.build_type }}"
+          
+          # Construir el APK con el tipo correspondiente y firma
+          flutter build apk --${{ inputs.build_type }} --dart-define=ENV=${{ inputs.env_file }}
+          
+          # Renombrar el APK generado
+          mv "build/app/outputs/flutter-apk/app-${{ inputs.build_type }}.apk" "build/app/outputs/flutter-apk/${{ inputs.apk_name }}"
+          
+          # Guardar el nombre del APK como variable de salida
+          echo "apk_name=${{ inputs.apk_name }}" >> $GITHUB_OUTPUT
+          echo "apk_path=${{ inputs.apk_path }}" >> $GITHUB_OUTPUT
+          echo "build_type=${{ inputs.build_type }}" >> $GITHUB_OUTPUT
+          
+          echo "✅ APK construido en modo ${{ inputs.build_type }} y renombrado: ${{ inputs.apk_name }}"
+
+      - name: Show build summary
+        run: |
+          echo "📋 RESUMEN DEL BUILD:"
+          echo "======================"
+          echo "🌍 Ambiente: ${{ inputs.env_name }}"
+          echo "🔧 Tipo de build: ${{ inputs.build_type }}"
+          echo "📱 Nombre del APK: ${{ inputs.apk_name }}"
+          echo "📁 Ruta del APK: ${{ inputs.apk_path }}"
+          echo "🏷️ Rama: ${{ github.ref_name }}"
+          echo "🕐 Timestamp: $(date)"
+          echo "======================"
