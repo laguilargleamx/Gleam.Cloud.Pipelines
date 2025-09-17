@@ -36,6 +36,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Download APK artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: apk-${{ inputs.env_name }}-profile
+          path: ./apk
+
       - name: Upload APK to OneDrive
         id: upload-onedrive
         run: |
@@ -105,15 +111,24 @@ jobs:
             # Subir el archivo usando la sesión de upload
             echo "📤 Subiendo archivo..."
             
+            # Buscar el archivo APK en el directorio descargado
+            APK_FILE=$(find ./apk -name "*.apk" | head -1)
+            if [ -z "$APK_FILE" ]; then
+              echo "❌ Error: No se encontró el archivo APK"
+              exit 1
+            fi
+            
+            echo "📱 Archivo APK encontrado: $APK_FILE"
+            
             # Obtener el tamaño del archivo para validación
-            FILE_SIZE=$(stat -c%s "${{ inputs.apk_path }}" 2>/dev/null || stat -f%z "${{ inputs.apk_path }}" 2>/dev/null)
+            FILE_SIZE=$(stat -c%s "$APK_FILE" 2>/dev/null || stat -f%z "$APK_FILE" 2>/dev/null)
             echo "📏 Tamaño del archivo: $FILE_SIZE bytes"
             
             # Subir el archivo con validación de respuesta
             UPLOAD_RESPONSE=$(curl -s -w "HTTPSTATUS:%{http_code};SIZE:%{size_upload}" -X PUT \
               -H "Content-Type: application/octet-stream" \
               -H "Content-Range: bytes 0-$((FILE_SIZE-1))/$FILE_SIZE" \
-              --data-binary @"${{ inputs.apk_path }}" \
+              --data-binary @"$APK_FILE" \
               "$UPLOAD_URL")
             
             # Extraer el código de estado HTTP y el tamaño subido

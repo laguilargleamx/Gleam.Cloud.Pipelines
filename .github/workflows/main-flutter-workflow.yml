@@ -125,7 +125,7 @@ jobs:
   upload-to-onedrive:
     if: github.event_name == 'push'
     uses: ./.github/workflows/job-upload-onedrive.yml
-    needs: [build-flutter-app, setup-configuration]
+    needs: [build-flutter-app]
     with:
       project: ${{ inputs.project }}
       apk_name: ${{ needs.setup-configuration.outputs.apk_name }}
