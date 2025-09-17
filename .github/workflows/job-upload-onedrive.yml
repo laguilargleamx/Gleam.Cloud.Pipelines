@@ -1,4 +1,4 @@
-name: Job Upload to OneDrive
+name: Job Build and Upload Flutter App
 
 on: 
   workflow_call:
@@ -15,6 +15,12 @@ on:
       env_name:
         required: true
         type: string
+      build_type:
+        required: true
+        type: string
+      env_file:
+        required: true
+        type: string
     secrets:
       azure_client_id:
         required: true
@@ -24,10 +30,38 @@ on:
         required: true
       onedrive_folder_id:
         required: true
+      android_keystore_base64:
+        required: true
+      android_keystore_password:
+        required: true
+      android_key_password:
+        required: true
+      android_key_alias:
+        required: true
+      google_services_json_base65:
+        required: true
+      dev_api_base_url:
+        required: false
+      dev_system:
+        required: false
+      dev_permissions:
+        required: false
+      qa_api_base_url:
+        required: false
+      qa_system:
+        required: false
+      qa_permissions:
+        required: false
+      prod_api_base_url:
+        required: false
+      prod_system:
+        required: false
+      prod_permissions:
+        required: false
 
 jobs: 
-  upload:
-    name: "Upload APK to OneDrive"
+  build-and-upload:
+    name: "Build Flutter App and Upload to OneDrive"
     runs-on: ubuntu-22.04
     outputs:
       upload_success: ${{ steps.upload-onedrive.outputs.upload_success }}
@@ -36,25 +70,205 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download APK artifact
-        uses: actions/download-artifact@v4
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
         with:
-          name: apk-${{ inputs.env_name }}-profile
-          path: ./apk
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.32.1'
+
+      - name: Create environment files
+        id: create-env
+        run: |
+          # Determinar el ambiente basado en el branch
+          if [[ "${{ github.ref }}" == "refs/heads/dev" ]]; then
+            ENV_FILE=".env.dev"
+            ENV_NAME="dev"
+            echo "🌍 Ambiente: DEV"
+          elif [[ "${{ github.ref }}" == "refs/heads/qa" ]]; then
+            ENV_FILE=".env.qa"
+            ENV_NAME="qa"
+            echo "🌍 Ambiente: QA"
+          elif [[ "${{ github.ref }}" == "refs/heads/master" ]]; then
+            ENV_FILE=".env"
+            ENV_NAME="prod"
+            echo "🌍 Ambiente: PRODUCCIÓN"
+          else
+            ENV_FILE=".env.dev"
+            ENV_NAME="dev"
+            echo "🌍 Ambiente: DEV (por defecto)"
+          fi
+          
+          echo "📄 Archivo principal: $ENV_FILE"
+          echo "🏷️ Nombre del ambiente: $ENV_NAME"
+          
+          # Crear .env.dev
+          cat > .env.dev << 'EOF'
+          API_BASE_URL=${{ secrets.dev_api_base_url }}
+          SYSTEM=${{ secrets.dev_system }}
+          PERMISSIONS=${{ secrets.dev_permissions }}
+          EOF
+          
+          # Crear .env.qa
+          cat > .env.qa << 'EOF'
+          API_BASE_URL=${{ secrets.qa_api_base_url }}
+          SYSTEM=${{ secrets.qa_system }}
+          PERMISSIONS=${{ secrets.qa_permissions }}
+          EOF
+          
+          # Crear .env (producción)
+          cat > .env << 'EOF'
+          API_BASE_URL=${{ secrets.prod_api_base_url }}
+          SYSTEM=${{ secrets.prod_system }}
+          PERMISSIONS=${{ secrets.prod_permissions }}
+          EOF
+          
+          echo "📁 Archivos de ambiente creados:"
+          echo "   - .env.dev (DEV)"
+          echo "   - .env.qa (QA)" 
+          echo "   - .env (PRODUCCIÓN)"
+          
+          # Guardar el archivo principal y nombre del ambiente como variables de salida
+          echo "ENV_FILE=$ENV_FILE" >> $GITHUB_OUTPUT
+          echo "ENV_NAME=$ENV_NAME" >> $GITHUB_OUTPUT
+
+      - name: Verify environment files
+        run: |
+          echo "📁 Verificando archivos de ambiente creados:"
+          echo ""
+          echo "🔍 .env.dev (DEV):"
+          cat .env.dev
+          echo ""
+          echo "🔍 .env.qa (QA):"
+          cat .env.qa
+          echo ""
+          echo "🔍 .env (PRODUCCIÓN):"
+          cat .env
+          echo ""
+          echo "📋 Todos los archivos: $(ls -la .env*)"
+          echo ""
+          echo "🎯 Archivo principal para este ambiente: ${{ steps.create-env.outputs.ENV_FILE }}"
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Run code generation
+        run: flutter pub run build_runner build --delete-conflicting-outputs
+
+      - name: Run tests
+        run: flutter test
+
+      - name: Setup Android Keystore
+        id: setup-keystore
+        run: |
+          echo "🔐 Configurando keystore para firma de Android..."
+          
+          # Crear directorio para el keystore
+          mkdir -p android/app
+          
+          # Decodificar el keystore desde GitHub Secrets
+          echo "${{ secrets.android_keystore_base64 }}" | base64 -d > android/app/keystore.jks
+          
+          # Verificar que el keystore se creó correctamente
+          if [ -f "android/app/keystore.jks" ]; then
+            echo "✅ Keystore decodificado exitosamente"
+            ls -la android/app/keystore.jks
+          else
+            echo "❌ Error: No se pudo crear el keystore"
+            exit 1
+          fi
+          
+          # Crear archivo key.properties para el build
+          cat > android/key.properties << EOF
+          storePassword=${{ secrets.android_keystore_password }}
+          keyPassword=${{ secrets.android_key_password }}
+          keyAlias=${{ secrets.android_key_alias }}
+          storeFile=keystore.jks
+          EOF
+          
+          echo "📄 Archivo key.properties creado"
+          echo "🔑 Alias de la clave: ${{ secrets.android_key_alias }}"
+          
+          # Mostrar el SHA-1 del keystore (opcional, no crítico)
+          echo "🔍 Intentando mostrar SHA-1 del keystore:"
+          if keytool -list -v -keystore android/app/keystore.jks -alias ${{ secrets.android_key_alias }} -storepass ${{ secrets.android_keystore_password }} 2>/dev/null | grep "SHA1:"; then
+            echo "✅ SHA-1 obtenido correctamente"
+          else
+            echo "⚠️ No se pudo obtener SHA-1 (no crítico para el build)"
+          fi
+
+      - name: Setup Google Services
+        run: |
+          echo "🔧 Configurando Google Services..."
+          
+          # Crear google-services.json desde GitHub Secrets
+          echo "${{ secrets.google_services_json_base65 }}" | base64 -d > android/app/google-services.json
+          
+          # Verificar que el archivo se creó correctamente
+          if [ -f "android/app/google-services.json" ]; then
+            echo "✅ Google Services configurado exitosamente"
+            echo "📄 Archivo google-services.json creado"
+          else
+            echo "❌ Error: No se pudo crear google-services.json"
+            exit 1
+          fi
+
+      - name: Build APK
+        id: build-apk
+        run: |
+          # Generar timestamp Unix
+          TIMESTAMP=$(date +%s)
+          echo "🕐 Timestamp: $TIMESTAMP"
+          
+          # Determinar el tipo de build según la rama
+          if [[ "${{ github.ref }}" == "refs/heads/dev" ]] || [[ "${{ github.ref }}" == "refs/heads/qa" ]]; then
+            BUILD_TYPE="profile"
+            echo "🔧 Generando APK en modo PROFILE para rama ${{ github.ref_name }}"
+          elif [[ "${{ github.ref }}" == "refs/heads/master" ]]; then
+            BUILD_TYPE="release"
+            echo "🚀 Generando APK en modo RELEASE para rama master"
+          else
+            BUILD_TYPE="profile"
+            echo "🔧 Generando APK en modo PROFILE (por defecto)"
+          fi
+          
+          # Construir el APK con el tipo correspondiente y firma
+          flutter build apk --$BUILD_TYPE --dart-define=ENV=${{ steps.create-env.outputs.ENV_FILE }}
+          
+          # Definir el nombre del APK con versión y tipo de build
+          APK_NAME="${{ steps.create-env.outputs.ENV_NAME }}_${BUILD_TYPE}_$TIMESTAMP.apk"
+          echo "📱 Nombre del APK: $APK_NAME"
+          
+          # Renombrar el APK generado
+          mv "build/app/outputs/flutter-apk/app-$BUILD_TYPE.apk" "build/app/outputs/flutter-apk/$APK_NAME"
+          
+          # Guardar el nombre del APK como variable de salida
+          echo "APK_NAME=$APK_NAME" >> $GITHUB_OUTPUT
+          echo "APK_PATH=build/app/outputs/flutter-apk/$APK_NAME" >> $GITHUB_OUTPUT
+          echo "BUILD_TYPE=$BUILD_TYPE" >> $GITHUB_OUTPUT
+          
+          echo "✅ APK construido en modo $BUILD_TYPE y renombrado: $APK_NAME"
+
+      - name: Show build summary
+        run: |
+          echo "📋 RESUMEN DEL BUILD:"
+          echo "======================"
+          echo "🌍 Ambiente: ${{ steps.create-env.outputs.ENV_NAME }}"
+          echo "🔧 Tipo de build: ${{ steps.build-apk.outputs.BUILD_TYPE }}"
+          echo "📱 Nombre del APK: ${{ steps.build-apk.outputs.APK_NAME }}"
+          echo "📁 Ruta del APK: ${{ steps.build-apk.outputs.APK_PATH }}"
+          echo "🏷️ Rama: ${{ github.ref_name }}"
+          echo "🕐 Timestamp: $(date)"
+          echo "======================"
 
       - name: Upload APK to OneDrive
         id: upload-onedrive
         run: |
           echo "☁️ Subiendo APK a OneDrive..."
-          
-          # Buscar el archivo APK en el directorio descargado
-          APK_FILE=$(find ./apk -name "*.apk" | head -1)
-          if [ -z "$APK_FILE" ]; then
-            echo "❌ Error: No se encontró el archivo APK"
-            exit 1
-          fi
-          
-          echo "📱 Archivo APK encontrado: $APK_FILE"
           
           # Obtener access token para Microsoft Graph usando OAuth2
           ACCESS_TOKEN=$(curl -s -X POST \
@@ -79,7 +293,7 @@ jobs:
           echo "✅ UPN configurado: $USER_UPN"
           
           # Crear directorio en OneDrive si no existe
-          FOLDER_PATH="${{ secrets.onedrive_folder_id }}/${{ inputs.env_name }}"
+          FOLDER_PATH="${{ secrets.onedrive_folder_id }}/${{ steps.create-env.outputs.ENV_NAME }}"
           
           echo "📁 Creando directorio: $FOLDER_PATH"
           
@@ -93,21 +307,21 @@ jobs:
             curl -X POST \
               -H "Authorization: Bearer $ACCESS_TOKEN" \
               -H "Content-Type: application/json" \
-              -d "{\"name\":\"${{ inputs.env_name }}\",\"folder\":{},\"@microsoft.graph.conflictBehavior\":\"rename\"}" \
+              -d "{\"name\":\"${{ steps.create-env.outputs.ENV_NAME }}\",\"folder\":{},\"@microsoft.graph.conflictBehavior\":\"rename\"}" \
               "https://graph.microsoft.com/v1.0/users/$USER_UPN/drive/root:${{ secrets.onedrive_folder_id }}:/children"
           else
             echo "✅ Directorio ya existe: $FOLDER_PATH"
           fi
           
           # Subir el APK
-          echo "📤 Subiendo APK: ${{ inputs.apk_name }}"
+          echo "📤 Subiendo APK: ${{ steps.build-apk.outputs.APK_NAME }}"
           
           echo "🔍 Creando sesión de upload..."
           UPLOAD_RESPONSE=$(curl -s -X POST \
             -H "Authorization: Bearer $ACCESS_TOKEN" \
             -H "Content-Type: application/json" \
-            -d "{\"item\":{\"@microsoft.graph.conflictBehavior\":\"rename\",\"name\":\"${{ inputs.apk_name }}\"}}" \
-            "https://graph.microsoft.com/v1.0/users/$USER_UPN/drive/root:$FOLDER_PATH/${{ inputs.apk_name }}:/createUploadSession")
+            -d "{\"item\":{\"@microsoft.graph.conflictBehavior\":\"rename\",\"name\":\"${{ steps.build-apk.outputs.APK_NAME }}\"}}" \
+            "https://graph.microsoft.com/v1.0/users/$USER_UPN/drive/root:$FOLDER_PATH/${{ steps.build-apk.outputs.APK_NAME }}:/createUploadSession")
           
           echo "📋 Respuesta de upload session:"
           echo "$UPLOAD_RESPONSE"
@@ -121,14 +335,14 @@ jobs:
             echo "📤 Subiendo archivo..."
             
             # Obtener el tamaño del archivo para validación
-            FILE_SIZE=$(stat -c%s "$APK_FILE" 2>/dev/null || stat -f%z "$APK_FILE" 2>/dev/null)
+            FILE_SIZE=$(stat -c%s "${{ steps.build-apk.outputs.APK_PATH }}" 2>/dev/null || stat -f%z "${{ steps.build-apk.outputs.APK_PATH }}" 2>/dev/null)
             echo "📏 Tamaño del archivo: $FILE_SIZE bytes"
             
             # Subir el archivo con validación de respuesta
             UPLOAD_RESPONSE=$(curl -s -w "HTTPSTATUS:%{http_code};SIZE:%{size_upload}" -X PUT \
               -H "Content-Type: application/octet-stream" \
               -H "Content-Range: bytes 0-$((FILE_SIZE-1))/$FILE_SIZE" \
-              --data-binary @"$APK_FILE" \
+              --data-binary @"${{ steps.build-apk.outputs.APK_PATH }}" \
               "$UPLOAD_URL")
             
             # Extraer el código de estado HTTP y el tamaño subido
@@ -142,9 +356,9 @@ jobs:
             if [ "$HTTP_STATUS" = "200" ] || [ "$HTTP_STATUS" = "201" ]; then
               if [ "$UPLOADED_SIZE" = "$FILE_SIZE" ]; then
                 echo "✅ APK subido exitosamente a OneDrive"
-                echo "🔗 Ubicación: $FOLDER_PATH/${{ inputs.apk_name }}"
+                echo "🔗 Ubicación: $FOLDER_PATH/${{ steps.build-apk.outputs.APK_NAME }}"
                 echo "upload_success=true" >> $GITHUB_OUTPUT
-                echo "file_url=$FOLDER_PATH/${{ inputs.apk_name }}" >> $GITHUB_OUTPUT
+                echo "file_url=$FOLDER_PATH/${{ steps.build-apk.outputs.APK_NAME }}" >> $GITHUB_OUTPUT
               else
                 echo "❌ Error: Archivo subido parcialmente ($UPLOADED_SIZE/$FILE_SIZE bytes)"
                 echo "upload_success=false" >> $GITHUB_OUTPUT

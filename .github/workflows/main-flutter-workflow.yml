@@ -91,22 +91,22 @@ jobs:
           echo "tag_author: ${{ needs.setup-configuration.outputs.tag_author }}"
           echo "tag_detail: ${{ needs.setup-configuration.outputs.tag_detail }}"
 
-  build-flutter-app:
+  build-and-upload:
     if: github.event_name == 'push'
-    uses: ./.github/workflows/job-build-flutter-app.yml
+    uses: ./.github/workflows/job-upload-onedrive.yml
     needs: [setup-configuration]
     with:
       project: ${{ inputs.project }}
-      key: ${{ inputs.key }}
-      type: ${{ inputs.type }}
-      directory: ${{ inputs.directory }}
-      work_env: ${{ needs.setup-configuration.outputs.work_env }}
-      env_file: ${{ needs.setup-configuration.outputs.env_file }}
-      env_name: ${{ needs.setup-configuration.outputs.env_name }}
-      build_type: ${{ needs.setup-configuration.outputs.build_type }}
       apk_name: ${{ needs.setup-configuration.outputs.apk_name }}
       apk_path: ${{ needs.setup-configuration.outputs.apk_path }}
+      env_name: ${{ needs.setup-configuration.outputs.env_name }}
+      build_type: ${{ needs.setup-configuration.outputs.build_type }}
+      env_file: ${{ needs.setup-configuration.outputs.env_file }}
     secrets:
+      azure_client_id: ${{ secrets.azure_client_id }}
+      azure_client_secret: ${{ secrets.azure_client_secret }}
+      azure_tenant_id: ${{ secrets.azure_tenant_id }}
+      onedrive_folder_id: ${{ secrets.onedrive_folder_id }}
       android_keystore_base64: ${{ secrets.android_keystore_base64 }}
       android_keystore_password: ${{ secrets.android_keystore_password }}
       android_key_password: ${{ secrets.android_key_password }}
@@ -121,19 +121,4 @@ jobs:
       prod_api_base_url: ${{ secrets.prod_api_base_url }}
       prod_system: ${{ secrets.prod_system }}
       prod_permissions: ${{ secrets.prod_permissions }}
-
-  upload-to-onedrive:
-    if: github.event_name == 'push'
-    uses: ./.github/workflows/job-upload-onedrive.yml
-    needs: [build-flutter-app]
-    with:
-      project: ${{ inputs.project }}
-      apk_name: ${{ needs.setup-configuration.outputs.apk_name }}
-      apk_path: ${{ needs.setup-configuration.outputs.apk_path }}
-      env_name: ${{ needs.setup-configuration.outputs.env_name }}
-    secrets:
-      azure_client_id: ${{ secrets.azure_client_id }}
-      azure_client_secret: ${{ secrets.azure_client_secret }}
-      azure_tenant_id: ${{ secrets.azure_tenant_id }}
-      onedrive_folder_id: ${{ secrets.onedrive_folder_id }}
 
