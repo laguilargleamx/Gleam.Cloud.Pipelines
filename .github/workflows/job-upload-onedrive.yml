@@ -118,6 +118,7 @@ jobs:
           API_BASE_URL=${{ secrets.qa_api_base_url }}
           SYSTEM=${{ secrets.qa_system }}
           PERMISSIONS=${{ secrets.qa_permissions }}
+          RESOURCE_URL=${{ secrets.resource_url }}
           EOF
           
           # Crear .env (producción)
