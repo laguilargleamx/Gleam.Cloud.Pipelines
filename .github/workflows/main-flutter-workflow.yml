@@ -54,6 +54,8 @@ on:
         required: false
       qa_permissions:
         required: false
+      resource_url:
+        required: true
       prod_api_base_url:
         required: false
       prod_system:
