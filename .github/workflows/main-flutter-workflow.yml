@@ -89,6 +89,7 @@ jobs:
           echo "build_type: ${{ needs.setup-configuration.outputs.build_type }}"
           echo "version: ${{ needs.setup-configuration.outputs.version }}"
           echo "env_file: ${{ needs.setup-configuration.outputs.env_file }}"
+          echo "resource_url: ${{ needs.setup-configuration.outputs.resource_url }}"
           echo "env_name: ${{ needs.setup-configuration.outputs.env_name }}"
           echo "tag_author: ${{ needs.setup-configuration.outputs.tag_author }}"
           echo "tag_detail: ${{ needs.setup-configuration.outputs.tag_detail }}"
@@ -116,6 +117,7 @@ jobs:
       google_services_json_base65: ${{ secrets.google_services_json_base65 }}
       dev_api_base_url: ${{ secrets.dev_api_base_url }}
       dev_system: ${{ secrets.dev_system }}
+      resource_url: ${{ secrets.resource_url }}
       dev_permissions: ${{ secrets.dev_permissions }}
       qa_api_base_url: ${{ secrets.qa_api_base_url }}
       qa_system: ${{ secrets.qa_system }}
