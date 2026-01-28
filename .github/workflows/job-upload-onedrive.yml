@@ -184,7 +184,7 @@ jobs:
           echo "🔧 Configurando Google Services..."
           
           # Crear google-services.json desde GitHub Secrets
-          echo "${{ secrets.google_services_json_base64 }}" | base64 -d > android/app/google-services.json
+          echo "${{ secrets.google_services_json_base65 }}" | base64 -d > android/app/google-services.json
           
           # Verificar que el archivo se creó correctamente
           if [ -f "android/app/google-services.json" ]; then
