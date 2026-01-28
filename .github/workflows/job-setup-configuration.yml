@@ -53,6 +53,9 @@ jobs:
       - name: Setup Flutter Configuration
         id: init
         run: |
+          echo "📦 project_type: ${{ inputs.project_type }}"
+          echo "🔑 project_key: ${{ inputs.project_key }}"
+
           if [[ ${{ github.event_name }} == pull_request ]]; then
             PULL_REQUEST_BASE_REF="${{ github.event.pull_request.base.ref }}"
           else
@@ -99,7 +102,7 @@ jobs:
             echo "env_file=.env.stg" >> $GITHUB_OUTPUT
             echo "env_name=stg" >> $GITHUB_OUTPUT
           elif [[ ${{ github.ref }} == refs/tags/v* ]]; then
-            echo "work_env=prd" >> $GITHUB_OUTPUT
+            echo "work_env=prod" >> $GITHUB_OUTPUT
             echo "env_file=.env" >> $GITHUB_OUTPUT
             echo "env_name=prod" >> $GITHUB_OUTPUT
           else

@@ -81,29 +81,15 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.32.1'
+          flutter-version: '3.35.7'
 
       - name: Create environment files
         id: create-env
         run: |
-          # Determinar el ambiente basado en el branch
-          if [[ "${{ github.ref }}" == "refs/heads/dev" ]]; then
-            ENV_FILE=".env.dev"
-            ENV_NAME="dev"
-            echo "🌍 Ambiente: DEV"
-          elif [[ "${{ github.ref }}" == "refs/heads/qa" ]]; then
-            ENV_FILE=".env.qa"
-            ENV_NAME="qa"
-            echo "🌍 Ambiente: QA"
-          elif [[ "${{ github.ref }}" == "refs/heads/master" ]]; then
-            ENV_FILE=".env"
-            ENV_NAME="prod"
-            echo "🌍 Ambiente: PRODUCCIÓN"
-          else
-            ENV_FILE=".env.dev"
-            ENV_NAME="dev"
-            echo "🌍 Ambiente: DEV (por defecto)"
-          fi
+          # Usar el ambiente definido por el job de setup
+          ENV_FILE="${{ inputs.env_file }}"
+          ENV_NAME="${{ inputs.env_name }}"
+          echo "🌍 Ambiente: $ENV_NAME"
           
           echo "📄 Archivo principal: $ENV_FILE"
           echo "🏷️ Nombre del ambiente: $ENV_NAME"
@@ -142,18 +128,7 @@ jobs:
       - name: Verify environment files
         run: |
           echo "📁 Verificando archivos de ambiente creados:"
-          echo ""
-          echo "🔍 .env.dev (DEV):"
-          cat .env.dev
-          echo ""
-          echo "🔍 .env.qa (QA):"
-          cat .env.qa
-          echo ""
-          echo "🔍 .env (PRODUCCIÓN):"
-          cat .env
-          echo ""
-          echo "📋 Todos los archivos: $(ls -la .env*)"
-          echo ""
+          echo "📋 Archivos: $(ls -la .env*)"
           echo "🎯 Archivo principal para este ambiente: ${{ steps.create-env.outputs.ENV_FILE }}"
 
       - name: Install dependencies
@@ -209,7 +184,7 @@ jobs:
           echo "🔧 Configurando Google Services..."
           
           # Crear google-services.json desde GitHub Secrets
-          echo "${{ secrets.google_services_json_base65 }}" | base64 -d > android/app/google-services.json
+          echo "${{ secrets.google_services_json_base64 }}" | base64 -d > android/app/google-services.json
           
           # Verificar que el archivo se creó correctamente
           if [ -f "android/app/google-services.json" ]; then
@@ -223,27 +198,15 @@ jobs:
       - name: Build APK
         id: build-apk
         run: |
-          # Generar timestamp Unix
-          TIMESTAMP=$(date +%s)
-          echo "🕐 Timestamp: $TIMESTAMP"
-          
-          # Determinar el tipo de build según la rama
-          if [[ "${{ github.ref }}" == "refs/heads/dev" ]] || [[ "${{ github.ref }}" == "refs/heads/qa" ]]; then
-            BUILD_TYPE="profile"
-            echo "🔧 Generando APK en modo PROFILE para rama ${{ github.ref_name }}"
-          elif [[ "${{ github.ref }}" == "refs/heads/master" ]]; then
-            BUILD_TYPE="release"
-            echo "🚀 Generando APK en modo RELEASE para rama master"
-          else
-            BUILD_TYPE="profile"
-            echo "🔧 Generando APK en modo PROFILE (por defecto)"
-          fi
+          # Usar el tipo de build definido por el job de setup
+          BUILD_TYPE="${{ inputs.build_type }}"
+          echo "🔧 Generando APK en modo $BUILD_TYPE"
           
           # Construir el APK con el tipo correspondiente y firma
           flutter build apk --$BUILD_TYPE --dart-define=ENV=${{ steps.create-env.outputs.ENV_FILE }}
           
           # Definir el nombre del APK con versión y tipo de build
-          APK_NAME="${{ steps.create-env.outputs.ENV_NAME }}_${BUILD_TYPE}_$TIMESTAMP.apk"
+          APK_NAME="${{ inputs.apk_name }}"
           echo "📱 Nombre del APK: $APK_NAME"
           
           # Renombrar el APK generado
@@ -251,7 +214,7 @@ jobs:
           
           # Guardar el nombre del APK como variable de salida
           echo "APK_NAME=$APK_NAME" >> $GITHUB_OUTPUT
-          echo "APK_PATH=build/app/outputs/flutter-apk/$APK_NAME" >> $GITHUB_OUTPUT
+          echo "APK_PATH=${{ inputs.apk_path }}" >> $GITHUB_OUTPUT
           echo "BUILD_TYPE=$BUILD_TYPE" >> $GITHUB_OUTPUT
           
           echo "✅ APK construido en modo $BUILD_TYPE y renombrado: $APK_NAME"
@@ -260,6 +223,7 @@ jobs:
         run: |
           echo "📋 RESUMEN DEL BUILD:"
           echo "======================"
+          echo "🌍 Proyecto: ${{ inputs.project }}"
           echo "🌍 Ambiente: ${{ steps.create-env.outputs.ENV_NAME }}"
           echo "🔧 Tipo de build: ${{ steps.build-apk.outputs.BUILD_TYPE }}"
           echo "📱 Nombre del APK: ${{ steps.build-apk.outputs.APK_NAME }}"
