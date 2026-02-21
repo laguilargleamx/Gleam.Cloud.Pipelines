@@ -91,7 +91,7 @@ jobs:
           # Usar el ambiente definido por el job de setup
           ENV_FILE="${{ inputs.env_file }}"
           ENV_NAME="${{ inputs.env_name }}"
-          STRIPE_PUBLIC_KEY="${{ inputs.stripe_public_key }}"
+          STRIPE_PUBLIC_KEY="${{ secrets.stripe_public_key }}"
           echo "🌍 Ambiente: $ENV_NAME"
           
           echo "📄 Archivo principal: $ENV_FILE"
@@ -102,7 +102,7 @@ jobs:
           API_BASE_URL=${{ secrets.dev_api_base_url }}
           SYSTEM=${{ secrets.dev_system }}
           PERMISSIONS=${{ secrets.dev_permissions }}
-          STRIPE_PUBLIC_KEY=${{ inputs.stripe_public_key }}
+          STRIPE_PUBLIC_KEY=${{ secrets.stripe_public_key }}
           EOF
           
           # Crear .env.qa
@@ -111,7 +111,7 @@ jobs:
           SYSTEM=${{ secrets.qa_system }}
           PERMISSIONS=${{ secrets.qa_permissions }}
           RESOURCE_URL=${{ secrets.resource_url }}
-          STRIPE_PUBLIC_KEY=${{ inputs.stripe_public_key }}
+          STRIPE_PUBLIC_KEY=${{ secrets.stripe_public_key }}
           EOF
           
           # Crear .env (producción)
@@ -119,7 +119,7 @@ jobs:
           API_BASE_URL=${{ secrets.prod_api_base_url }}
           SYSTEM=${{ secrets.prod_system }}
           PERMISSIONS=${{ secrets.prod_permissions }}
-          STRIPE_PUBLIC_KEY=${{ inputs.stripe_public_key }}
+          STRIPE_PUBLIC_KEY=${{ secrets.stripe_public_key }}
           EOF
           
           echo "📁 Archivos de ambiente creados:"
